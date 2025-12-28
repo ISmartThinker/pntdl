@@ -1,4 +1,16 @@
-flask
-beautifulsoup4
-cloudscraper
-requests
+
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api.py"
+    }
+  ]
+}
