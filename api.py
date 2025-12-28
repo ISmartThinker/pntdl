@@ -7,30 +7,60 @@ import re
 app = Flask(__name__)
 
 def get_csrf_token():
-    timestamp = int(time.time() * 1000)
-    url = f'https://klickpin.com/get-csrf-token.php?t={timestamp}'
+    session = requests.Session()
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 15; V2434 Build/AP3A.240905.015.A2_NN_V000L1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.35 Mobile Safari/537.36',
-        'Accept-Encoding': 'gzip, deflate, br, zstd',
-        'sec-ch-ua-platform': '"Android"',
-        'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-        'sec-ch-ua-mobile': '?1',
-        'X-Requested-With': 'mark.via.gp',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Dest': 'empty',
-        'Referer': 'https://klickpin.com/',
-        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8'
-    }
-    
-    response = requests.get(url, headers=headers, timeout=30)
-    
-    if response.status_code == 200:
-        data = response.json()
-        return data.get('csrf_token')
-    
-    return None
+    try:
+        homepage_url = 'https://klickpin.com/'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; V2434 Build/AP3A.240905.015.A2_NN_V000L1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.35 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            'sec-ch-ua-mobile': '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'Upgrade-Insecure-Requests': '1',
+            'X-Requested-With': 'mark.via.gp',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8'
+        }
+        
+        session.get(homepage_url, headers=headers, timeout=30)
+        
+        timestamp = int(time.time() * 1000)
+        csrf_url = f'https://klickpin.com/get-csrf-token.php?t={timestamp}'
+        
+        csrf_headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 15; V2434 Build/AP3A.240905.015.A2_NN_V000L1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.35 Mobile Safari/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'sec-ch-ua-platform': '"Android"',
+            'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
+            'sec-ch-ua-mobile': '?1',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'Referer': 'https://klickpin.com/',
+            'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8'
+        }
+        
+        response = session.get(csrf_url, headers=csrf_headers, timeout=30)
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                csrf_token = data.get('csrf_token')
+                return csrf_token, session
+            except:
+                return None, session
+        
+        return None, session
+        
+    except Exception as e:
+        return None, session
 
 def parse_download_page(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -60,24 +90,33 @@ def parse_download_page(html_content):
             match = re.search(r"downloadFile\('([^']+)'", onclick)
             if match:
                 download_url = match.group(1)
-                quality = 'HD' if '564x' in download_url else 'SD'
+                quality = 'HD (564x)' if '564x' in download_url else 'Original'
+                
+                if download_url not in [d['url'] for d in result['downloads']]:
+                    result['downloads'].append({
+                        'quality': quality,
+                        'url': download_url
+                    })
+        
+        elif 'i.pinimg.com' in href and 'dl.klickpin.com' not in href:
+            if href not in [d['url'] for d in result['downloads']]:
+                if '564x' in href:
+                    quality = 'HD (564x)'
+                elif 'originals' in href:
+                    quality = 'Original'
+                else:
+                    quality = 'Standard'
+                
                 result['downloads'].append({
                     'quality': quality,
-                    'url': download_url
+                    'url': href
                 })
-        
-        elif 'i.pinimg.com' in href and href not in [d['url'] for d in result['downloads']]:
-            quality = 'Original'
-            result['downloads'].append({
-                'quality': quality,
-                'url': href
-            })
     
     return result
 
 def download_pinterest(pinterest_url):
     try:
-        csrf_token = get_csrf_token()
+        csrf_token, session = get_csrf_token()
         
         if not csrf_token:
             return {
@@ -96,6 +135,7 @@ def download_pinterest(pinterest_url):
             'User-Agent': 'Mozilla/5.0 (Linux; Android 15; V2434 Build/AP3A.240905.015.A2_NN_V000L1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.7499.35 Mobile Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Content-Type': 'application/x-www-form-urlencoded',
             'Cache-Control': 'max-age=0',
             'sec-ch-ua': '"Android WebView";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
             'sec-ch-ua-mobile': '?1',
@@ -111,7 +151,7 @@ def download_pinterest(pinterest_url):
             'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8'
         }
         
-        response = requests.post(download_url, data=payload, headers=headers, timeout=30)
+        response = session.post(download_url, data=payload, headers=headers, timeout=30)
         
         if response.status_code == 200:
             parsed_data = parse_download_page(response.text)
@@ -127,7 +167,7 @@ def download_pinterest(pinterest_url):
             else:
                 return {
                     'status': 'error',
-                    'message': 'No download links found'
+                    'message': 'No download links found in response'
                 }
         else:
             return {
